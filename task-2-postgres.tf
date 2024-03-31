@@ -12,27 +12,23 @@ resource "kubernetes_namespace" "intercax" {
   }
 }
 
-data "keepass_entry" "intercax_postgres" {
-  path = "Root/intercax/postgres"
-}
-
 
 
 resource "kubernetes_secret" "intercax_postgres_secrets" {
   metadata {
     name = "postgres-secret"
-    namespace = kubernetes_namespace.intercax.metadata[0].name
+    
   }
 
   data = {
-    POSTGRES_PASSWORD = data.keepass_entry.intercax_postgres.password
+    POSTGRES_PASSWORD = var.postgres_password
   }
 }
 
 resource "kubernetes_persistent_volume_claim" "ic_postgres_pvc" {
   metadata {
     name      = "postgres-pvc"
-    namespace = kubernetes_namespace.intercax.metadata[0].name
+    
   }
   spec {
     access_modes = ["ReadWriteOnce"]
@@ -49,7 +45,7 @@ resource "kubernetes_persistent_volume_claim" "ic_postgres_pvc" {
 resource "kubernetes_stateful_set" "ic_postgres_statefulset" {
   metadata {
     name = "postgres"
-    namespace = kubernetes_namespace.intercax.metadata[0].name
+    
   }
 
   spec {
@@ -79,7 +75,7 @@ resource "kubernetes_stateful_set" "ic_postgres_statefulset" {
               name = kubernetes_secret.intercax_postgres_secrets.metadata[0].name
             }
           }
-
+ 
          env {
              name  = "PGDATA"
              value = "/var/lib/postgresql/data/intercax" 
@@ -100,8 +96,20 @@ resource "kubernetes_stateful_set" "ic_postgres_statefulset" {
           }
 
           volume_mount {
-            mount_path = "/var/lib/postgresql/data/intercax"
+            name       = "init-scripts"
+            mount_path = "/docker-entrypoint-initdb.d/"
+          }
+
+          volume_mount {
+            mount_path = "/var/lib/postgresql/data/"
             name       = "postgres-storage"
+          }
+        }
+        volume {
+          name = "init-scripts"
+
+          config_map {
+            name = kubernetes_config_map.postgres_init.metadata[0].name
           }
         }
         volume {
@@ -118,21 +126,49 @@ resource "kubernetes_stateful_set" "ic_postgres_statefulset" {
   }
 }
 
+
+
+resource "kubernetes_service" "service_postgres" {
+  metadata {
+    name = "postgres"
+    
+  }
+
+  spec {
+    port {
+      port        = 5432
+      target_port = 5432
+    }
+
+    selector = {
+      app = "postgres"
+    }
+
+    type = "ClusterIP"
+  }
+}
+
+
 resource "random_password" "exporter_password" {
   length           = 16
   special          = false
 }
 
 
-resource "kubernetes_config_map" "postgres_exporter_user_sql" {
+resource "kubernetes_config_map" "postgres_init" {
   metadata {
-    name = "postgres-exporter-user-sql"
+    name = "postgres-init"
+    
   }
 
   data = {
-    "create_user.sql" = <<-EOT
+    "create_user.sh" = <<-EOT
+    #!/bin/bash
+    set -e
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
       CREATE USER exporter WITH PASSWORD '${random_password.exporter_password.result}';
       GRANT pg_monitor TO exporter;
+      EOSQL
     EOT
   }
 }
@@ -141,6 +177,7 @@ resource "kubernetes_config_map" "postgres_exporter_user_sql" {
 resource "kubernetes_deployment" "postgres_exporter" {
   metadata {
     name = "postgres-exporter"
+    
     labels = {
       app = "postgres-exporter"
     }
@@ -170,10 +207,51 @@ resource "kubernetes_deployment" "postgres_exporter" {
           }
           env {
             name  = "DATA_SOURCE_NAME"
-            value = "postgresql://exporter:@postgres:5432/<dbname>?sslmode=disable"
+            value = "postgresql://exporter:${random_password.exporter_password.result}@postgres:5432/postgres?sslmode=disable"
           }
         }
       }
     }
+  }
+}
+
+
+resource "kubernetes_service" "postgres_exporter" {
+  metadata {
+    name = "postgres-exporter"
+  }
+
+  spec {
+    selector = {
+      app = "postgres-exporter"
+    }
+
+    port {
+      name        = "metrics"
+      port        = 9187
+      target_port = 9187
+    }
+
+    type = "ClusterIP"
+  }
+}
+
+resource "kubernetes_service" "postgres_exporter_np" {
+  metadata {
+    name = "postgres-exporter-np"
+  }
+
+  spec {
+    selector = {
+      app = "postgres-exporter"
+    }
+
+    port {
+      port        = 9187
+      target_port = 9187
+      node_port = 30001
+    }
+
+    type = "NodePort"
   }
 }

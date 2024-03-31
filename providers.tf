@@ -9,6 +9,14 @@ terraform {
       version = "~> 5.40.0"
     }
 
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
+    kubernetes = {
+      source = "hashicorp/kubernetes"
+      version = ">= 2.24.0"
+    }
   }
 
   required_version = "~> 1.7.0"
@@ -22,3 +30,14 @@ terraform {
   # }  
 }
 
+provider "kubernetes" {
+      config_path = "~/.k3s/k3s-kubeconfig.yaml"
+      config_context = "default"
+    }
+
+provider "helm" {
+  kubernetes {
+    config_path = "~/.k3s/k3s-kubeconfig.yaml"
+  }
+
+}
