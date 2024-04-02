@@ -23,13 +23,14 @@ terraform {
 
 
   # backend "s3" {
-  #   bucket = "ic-terraform-states"
-  #   key    = "ic-challenge/terraform.tfstate"
+  #   bucket = "daniel-intercax"
+  #   key    = "ic-challenge-postgres/terraform.tfstate"
   #   region = "us-east-2"
   #   encrypt = true
   # }  
 }
 
+# Change these to your Kubernetes config
 provider "kubernetes" {
       config_path = "~/.k3s/k3s-kubeconfig.yaml"
       config_context = "default"
