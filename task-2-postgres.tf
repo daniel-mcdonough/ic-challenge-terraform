@@ -25,6 +25,7 @@ resource "kubernetes_secret" "intercax_postgres_secrets" {
   }
 }
 
+#Create a persistent volume claim for postgres. This uses my local Longhorn storage backend.
 resource "kubernetes_persistent_volume_claim" "ic_postgres_pvc" {
   metadata {
     name      = "postgres-pvc"
@@ -41,6 +42,8 @@ resource "kubernetes_persistent_volume_claim" "ic_postgres_pvc" {
   }
 }
 
+#Create a statefulset for the Postgres database.
+#This also creates the exporter Postgres user using the container's entrypoint initdb
 
 resource "kubernetes_stateful_set" "ic_postgres_statefulset" {
   metadata {
@@ -127,7 +130,7 @@ resource "kubernetes_stateful_set" "ic_postgres_statefulset" {
 }
 
 
-
+#Expose Postgres to other pods
 resource "kubernetes_service" "service_postgres" {
   metadata {
     name = "postgres"
@@ -148,12 +151,15 @@ resource "kubernetes_service" "service_postgres" {
   }
 }
 
-
+#Generate a random password for the exporter's Postgres user
 resource "random_password" "exporter_password" {
   length           = 16
   special          = false
 }
 
+#Create a Postgres user for the exporter.
+#This is done by creating a bash file via a configmap
+#and placing it in the /docker-entrypoint-initdb.d/ via a volume mount
 
 resource "kubernetes_config_map" "postgres_init" {
   metadata {
@@ -173,7 +179,7 @@ resource "kubernetes_config_map" "postgres_init" {
   }
 }
 
-#This likely needs to be a count for each postgres deployed
+#Deploy the Postgres exporter
 resource "kubernetes_deployment" "postgres_exporter" {
   metadata {
     name = "postgres-exporter"
@@ -215,7 +221,7 @@ resource "kubernetes_deployment" "postgres_exporter" {
   }
 }
 
-
+#Expose the exporter to other pods, namely for Prometheus to scarpe
 resource "kubernetes_service" "postgres_exporter" {
   metadata {
     name = "postgres-exporter"
@@ -236,22 +242,24 @@ resource "kubernetes_service" "postgres_exporter" {
   }
 }
 
-resource "kubernetes_service" "postgres_exporter_np" {
-  metadata {
-    name = "postgres-exporter-np"
-  }
+#For testing purposes to access the exporter from outside the cluster
 
-  spec {
-    selector = {
-      app = "postgres-exporter"
-    }
+# resource "kubernetes_service" "postgres_exporter_np" {
+#   metadata {
+#     name = "postgres-exporter-np"
+#   }
 
-    port {
-      port        = 9187
-      target_port = 9187
-      node_port = 30001
-    }
+#   spec {
+#     selector = {
+#       app = "postgres-exporter"
+#     }
 
-    type = "NodePort"
-  }
-}
+#     port {
+#       port        = 9187
+#       target_port = 9187
+#       node_port = 30001
+#     }
+
+#     type = "NodePort"
+#   }
+# }
